@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 """
-ECCN: EAR99
-
 This script generates an interactive mean-variance plot with optimal portfolio selection.
 
 Input files required in current working directory:
@@ -15,14 +13,9 @@ from glob import glob
 import numpy as np
 from os import chdir, getcwd, remove
 from os.path import isfile
+import pandas as pd
 from scipy.optimize import minimize
 from shutil import move
-
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import pandas as pd
-from matplotlib.backends.backend_pdf import PdfPages
 
 # ***************************************************************************************
 # Set version number
@@ -39,6 +32,10 @@ def make_portfolio():
             risk_free_rate (float):  The risk free rate in percentage, i.e. 10% as 10.0.
             utility_a (float):  The "A" constant in the quadratic utility function; u = e - 1/2 * A * std^2
 """
+
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
 
     r_free = settings["risk_free_rate"]
     std_free = settings["risk_free_std"]
@@ -62,6 +59,7 @@ def make_portfolio():
 
     # Determine the optimal portfolio
     # -----------------------------------------------------------------------------------
+    print("Generating optimal portfolio.")
     res = minimize(negative_slope, x0=weights, bounds=weight_bnd, constraints=weight_con)
     opt_weights = res.x
     opt_r = (opt_weights * book.loc[:, 'return']).sum()
@@ -69,6 +67,7 @@ def make_portfolio():
 
     # Determine the minimum variance portfolio
     # -----------------------------------------------------------------------------------
+    print("Generating minimum variance portfolio.")
     res = minimize(get_std, x0=opt_weights, bounds=weight_bnd, constraints=weight_con)
     min_var_r = (res.x * book.loc[:, 'return']).sum()
     min_var_std = get_std(res.x)
@@ -76,21 +75,30 @@ def make_portfolio():
     # Determine complete portfolio point
     # -----------------------------------------------------------------------------------
     y = (opt_r - r_free) / (a * opt_std ** 2)
+    if y > 1.0:
+        print("Optimal y is {:.1f}%, but limiting to 100.0%".format(100.0 * y))
+        y = 1.0
     complete_r = y * opt_r + (1.0 - y) * r_free
     complete_std = y * opt_std
     u = complete_r - 0.5 * a * complete_std ** 2
 
-    # Create minimum variance frontier
+    # Save portfolio
     # -----------------------------------------------------------------------------------
-    frontier_r = np.linspace(min(min_var_r, book.loc[:, 'return'].min()), max(opt_r, book.loc[:, 'return'].max()))
-    frontier_std = np.empty_like(frontier_r)
-    weights = opt_weights.copy()
-    for i in range(frontier_r.shape[0]):
+    print("Saving portfolio.csv")
+    portfolio = pd.DataFrame(columns=["percentage", "value", "price", "number"], index=book.index)
+    portfolio.loc[:, 'percentage'] = opt_weights
+    portfolio = portfolio.loc[portfolio.percentage.round(2) != 0.00, :]
+    portfolio.loc[:, 'percentage'] = y * portfolio.loc[:, 'percentage'] / portfolio.loc[:, 'percentage'].sum()
+    portfolio.loc[settings["risk_free_name"], 'percentage'] = 1.0 - y
+    portfolio.loc[:, 'value'] = portfolio.loc[:, 'percentage'] * settings['portfolio_value']
+    portfolio.loc[:, 'price'] = book.loc[:, 'close']
+    portfolio.loc[settings['risk_free_name'], 'price'] = settings['risk_free_price']
+    portfolio.loc[:, 'number'] = portfolio.loc[:, 'value'] / portfolio.loc[:, 'price']
+    for n in ["percentage", "value", "number"]:
+        portfolio.loc["total", n] = portfolio.loc[:, n].sum()
+    portfolio = portfolio.astype({n: int for n in ["value", "number"]})
 
-        r_con = weight_con + ({'type': 'eq', 'fun': lambda x: (x * book.loc[:, 'return']).sum() - frontier_r[i]},)
-        res = minimize(get_std, x0=weights, bounds=weight_bnd, constraints=r_con)
-        weights = res.x
-        frontier_std[i] = get_std(res.x)
+    portfolio.to_csv("portfolio.csv", index_label="ticker", float_format='%.2f')
 
     # Create the utility function for plotting
     # -----------------------------------------------------------------------------------
@@ -102,8 +110,23 @@ def make_portfolio():
     cal_std = [std_free, utility_std[-1]]
     cal_r = [r_free, r_free + (utility_std[-1] - r_free) * (opt_r - r_free) / (opt_std - std_free)]
 
+    # Create minimum variance frontier
+    # -----------------------------------------------------------------------------------
+    print("Generating minimum variance frontier.")
+    frontier_r = np.linspace(min(min_var_r, book.loc[:, 'return'].min()),
+                             max(opt_r, book.loc[:, 'return'].max()), num=10)
+    frontier_std = np.empty_like(frontier_r)
+    weights = opt_weights.copy()
+    for i in range(frontier_r.shape[0]):
+
+        r_con = weight_con + ({'type': 'eq', 'fun': lambda x: (x * book.loc[:, 'return']).sum() - frontier_r[i]},)
+        res = minimize(get_std, x0=weights, bounds=weight_bnd, constraints=r_con)
+        weights = res.x
+        frontier_std[i] = get_std(res.x)
+
     # Make a plot
     # -----------------------------------------------------------------------------------
+    print("Making portfolio.png.")
     fig, ax1 = plt.subplots(nrows=1, ncols=1)
     ax1 = plt.subplot(111)
     ax1.set_xlabel("Standard Deviation of Monthly Returns")
@@ -126,18 +149,12 @@ def make_portfolio():
                 label='"Risk-Free" ({})'.format(settings["risk_free_name"]))
     ax1.scatter(book.loc[:, 'std'], book.loc[:, 'return'], color='k', marker='.', label='Stocks', zorder=10)
     ax1.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc=3, ncol=2, mode="expand", borderaxespad=0., fontsize=8)
-    ax1.set_ylim(0, 20)
-    ax1.set_xlim(left=0)
+    max_axis = 1.05 * max(opt_r, complete_r, book.loc[:, 'std'].max())
+    ax1.set_ylim(top=max_axis)
+    ax1.set_xlim(left=0, right=max_axis)
 
     fig.savefig("portfolio.png", orientation='landscape', bbox_inches="tight")
     plt.close(fig)
-
-    # Save portfolio weights
-    # -----------------------------------------------------------------------------------
-    weights = pd.Series(data=opt_weights.round(2), index=book.index)
-    weights = 100.0 * y * weights.loc[weights != 0.00] / weights.sum()
-    weights[settings["risk_free_name"]] = 100.0 * (1.0 - y)
-    weights.to_csv("weights.csv", index_label="name", float_format='%.0f')
 
 
 # ***************************************************************************************
@@ -187,10 +204,15 @@ def trend():
             "Adj Close" columns.  Daily frequency is required.
 
     Returns:
-        pd.DataFrame:  [name, [std, return]]  Each row is a stock by the name and columns are the standard deviation and
-            expected monthly return.
+        pd.DataFrame:  [name, [std, return, close]]  Each row is a stock by the name and columns are the standard
+            deviation, expected monthly return and today's adjusted close value.
         pd.DataFrame:  [name, name]  The covariance matrix of the monthly stock returns.
 """
+
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages
 
     # Create DataFrame with index starting 36 months ago
     # ---------------------------------------------------------------------------------------
@@ -212,7 +234,7 @@ def trend():
     prices = prices.resample('D').interpolate().bfill().ffill()
     prices = prices.loc[prices.index >= start.strftime("%Y-%m-%d"), :]
     returns = 100.0 * (prices.iloc[28:, :] - prices.iloc[:-28, :].values) / prices.iloc[:-28, :].values
-    stocks = pd.DataFrame(index=prices.columns.tolist(), columns=["std", "return"])
+    stocks = pd.DataFrame(index=prices.columns.tolist(), columns=["std", "return", "close"])
     chdir(cwd)
 
     # Fit trend to rates, predict one month and calculate standard deviation
@@ -224,10 +246,12 @@ def trend():
         fits[name] = np.poly1d(np.polyfit(x, returns[name].values[-prediction_duration:], 1))
         stocks.loc[name, "return"] = fits[name](prediction_duration + 28)
         stocks.loc[name, "std"] = returns.loc[:, name].std()
+        stocks.loc[name, "close"] = prices.loc[now, name]
 
     # Create pdf report
     # ---------------------------------------------------------------------------------------
     pdf_name = 'stocks.pdf'
+    print("Making {}.".format(pdf_name))
     tmp_pdf_name = '.tmp.pdf'
     for name in [n for n in [pdf_name, tmp_pdf_name] if isfile(n)]:
         remove(name)
@@ -253,6 +277,7 @@ def trend():
         ax2.plot(t[1:], r[1:], color='g')
 
         pdf.savefig(fig, papertype='letter', orientation='landscape', pad_inches=0.25)
+        plt.close(fig)
 
     pdf.close()
     move(tmp_pdf_name, pdf_name)
