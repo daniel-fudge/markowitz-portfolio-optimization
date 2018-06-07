@@ -31,7 +31,7 @@ def make_portfolio():
         settings.csv - Contains the following settings under the "name" and "value" columns.
             risk_free_rate (float):  The risk free rate in percentage, i.e. 10% as 10.0.
             utility_a (float):  The "A" constant in the quadratic utility function; u = e - 1/2 * A * std^2
-"""
+    """
 
     import matplotlib
     matplotlib.use('Agg')
@@ -82,22 +82,62 @@ def make_portfolio():
     complete_std = y * opt_std
     u = complete_r - 0.5 * a * complete_std ** 2
 
-    # Save portfolio
+    # Compile desired portfolio
     # -----------------------------------------------------------------------------------
     print("Saving portfolio.csv")
-    portfolio = pd.DataFrame(columns=["percentage", "value", "price", "number"], index=book.index)
+    portfolio = pd.DataFrame(columns=["percentage"], index=book.index)
     portfolio.loc[:, 'percentage'] = opt_weights
     portfolio = portfolio.loc[portfolio.percentage.round(2) != 0.00, :]
-    portfolio.loc[:, 'percentage'] = y * portfolio.loc[:, 'percentage'] / portfolio.loc[:, 'percentage'].sum()
+    portfolio['percentage'] = y * portfolio['percentage'] / portfolio['percentage'].sum()
     portfolio.loc[settings["risk_free_name"], 'percentage'] = 1.0 - y
-    portfolio.loc[:, 'value'] = portfolio.loc[:, 'percentage'] * settings['portfolio_value']
-    portfolio.loc[:, 'price'] = book.loc[:, 'close']
-    portfolio.loc[settings['risk_free_name'], 'price'] = settings['risk_free_price']
-    portfolio.loc[:, 'number'] = portfolio.loc[:, 'value'] / portfolio.loc[:, 'price']
-    for n in ["percentage", "value", "number"]:
-        portfolio.loc["total", n] = portfolio.loc[:, n].sum()
-    portfolio = portfolio.astype({n: int for n in ["value", "number"]})
+    portfolio['value_cad'] = portfolio['percentage'] * settings['portfolio_value']
 
+    for name in portfolio.index:
+        tmp_a = name.lower().split(".")
+        if len(tmp_a) == 1:
+            ex = settings['usd_cad']
+        else:
+            ex = settings['{}_cad'.format(settings[tmp_a[1]])]
+
+        if name == settings['risk_free_name']:
+            portfolio.loc[settings['risk_free_name'], 'price_cad'] = settings['risk_free_price'] * ex
+        else:
+            portfolio.loc[name, 'price_cad'] = book.loc[name, 'close'] * ex
+
+    portfolio['desired_number'] = portfolio['value_cad'] / portfolio['price_cad']
+
+    # Read current portfolio and calculate the necessary trades
+    # -----------------------------------------------------------------------------------
+    current_portfolio = pd.read_csv("OpenPosition.csv")
+    current_portfolio.rename(columns={"Quantity": "current_number"}, inplace=True)
+    for i in current_portfolio.index:
+        currency = current_portfolio.loc[i, "Currency"].lower()
+        if currency != "usd":
+            market = settings[settings == currency].index[0].upper()
+            current_portfolio.loc[i, "Symbol"] = "{}.{}".format(current_portfolio.loc[i, "Symbol"], market)
+    current_portfolio.set_index("Symbol", inplace=True)
+
+    portfolio = pd.concat([portfolio, current_portfolio["current_number"]], axis=1)
+    for name in ["current_number", "percentage", "value_cad", "desired_number"]:
+        portfolio[name] = portfolio[name].fillna(0.0)
+    missing = portfolio.index[portfolio.price_cad.isnull()].tolist()
+
+    for name in missing:
+        tmp_a = name.lower().split(".")
+        if len(tmp_a) == 1:
+            ex = settings['usd_cad']
+        else:
+            ex = settings['{}_cad'.format(settings[tmp_a[1]])]
+        portfolio.loc[name, 'price_cad'] = current_portfolio.loc[name, "LastPrice"] * ex
+
+    portfolio["buy"] = portfolio['desired_number'] - portfolio['current_number']
+    portfolio["value_usd"] = portfolio['value_cad'] / settings['usd_cad']
+
+    # Save portfolio
+    # -----------------------------------------------------------------------------------
+    portfolio = portfolio.astype({n: int for n in ["desired_number", "current_number", "buy"]})
+    portfolio["buy_cad"] = portfolio['buy'] * portfolio['price_cad']
+    portfolio["buy_usd"] = portfolio["buy_cad"] / settings['usd_cad']
     portfolio.to_csv("portfolio.csv", index_label="ticker", float_format='%.2f')
 
     # Create the utility function for plotting
@@ -307,6 +347,7 @@ cwd = getcwd()
 settings = pd.read_csv("settings.csv", index_col="name", squeeze=True)
 settings = settings.str.strip()
 settings = pd.to_numeric(settings, errors='coerce').fillna(settings)
+settings['cad_cad'] = 1.0
 
 # Initialize the book with historical trend and calculate the monthly return covariance
 # ---------------------------------------------------------------------------------------
