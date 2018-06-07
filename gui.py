@@ -131,13 +131,10 @@ def make_portfolio():
         portfolio.loc[name, 'price_cad'] = current_portfolio.loc[name, "LastPrice"] * ex
 
     portfolio["buy"] = portfolio['desired_number'] - portfolio['current_number']
-    portfolio["value_usd"] = portfolio['value_cad'] / settings['usd_cad']
 
     # Save portfolio
     # -----------------------------------------------------------------------------------
     portfolio = portfolio.astype({n: int for n in ["desired_number", "current_number", "buy"]})
-    portfolio["buy_cad"] = portfolio['buy'] * portfolio['price_cad']
-    portfolio["buy_usd"] = portfolio["buy_cad"] / settings['usd_cad']
     portfolio.to_csv("portfolio.csv", index_label="ticker", float_format='%.2f')
 
     # Create the utility function for plotting
