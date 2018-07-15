@@ -1,9 +1,26 @@
 #!/usr/bin/env python
 """
-This script generates an interactive mean-variance plot with optimal portfolio selection.
+This script performs an optimal portfolio selection based on the sharp ratio and utility maximization.
+
+Notes:
+    [CC] is the Currency Code such as "gbp" for Great Britain Pound.
+    [SE] is the Stock Extension used in the Yahoo Finance name on the stock price history files, such as "to" for the
+        Toronto Stock Exchange.  The [SE] is used to make to the associated [CC].
 
 Input files required in current working directory:
+
+    OpenPosition.csv - Current StockTrak portfolio positions.
     override.csv - Contains hard coded expected monthly return values.
+    settings.csv - Contains the following settings.
+        risk_free_name (str):  The risk free asset name.
+        utility_a (float):  The utility factor use to make asset allocation.
+        shorting (str):  The shorting method, which can be:
+            n = No shorting.
+            y = Full shorting.
+            limited = The absolute value of the weights can't be greater than 1.5.
+        portfolio_value (float):  The desired portfolio value used to determine number of stock to purchase / sell.
+        [CC]_cad (float):  The CC to Canadian dollar conversion rate.
+        [SE] (str):  The [CC] associated with the given [SE].
     stocks/[name].csv - The [name] refers to the stock ticker.  Each csv file needs to contains the "Date" and
         "Adj Close" columns.  Daily frequency is required.
 """
@@ -37,8 +54,6 @@ def make_portfolio():
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
-    r_free = settings["risk_free_rate"]
-    std_free = settings["risk_free_std"]
     a = settings["utility_a"]
 
     # Set the weight bounds and constraints
@@ -53,7 +68,7 @@ def make_portfolio():
             weight_bnd = weights.shape[0] * [(-1.0, 2.0)]
             shorting = "y"
         elif settings['shorting'].lower() == 'limited':
-            weight_con += ({'type': 'ineq', 'fun': lambda x: 2.0 - np.abs(x).sum()},)
+            weight_con += ({'type': 'ineq', 'fun': lambda x: 1.5 - np.abs(x).sum()},)
             weight_bnd = weights.shape[0] * [(-1.0, 1.0)]
             shorting = "L"
 
@@ -74,11 +89,11 @@ def make_portfolio():
 
     # Determine complete portfolio point
     # -----------------------------------------------------------------------------------
-    y = (opt_r - r_free) / (a * opt_std ** 2)
+    y = (opt_r - risk_free["return"]) / (a * opt_std ** 2)
     if y > 1.0:
         print("Optimal y is {:.1f}%, but limiting to 100.0%".format(100.0 * y))
         y = 1.0
-    complete_r = y * opt_r + (1.0 - y) * r_free
+    complete_r = y * opt_r + (1.0 - y) * risk_free["return"]
     complete_std = y * opt_std
     u = complete_r - 0.5 * a * complete_std ** 2
 
@@ -100,7 +115,7 @@ def make_portfolio():
             ex = settings['{}_cad'.format(settings[tmp_a[1]])]
 
         if name == settings['risk_free_name']:
-            portfolio.loc[settings['risk_free_name'], 'price_cad'] = settings['risk_free_price'] * ex
+            portfolio.loc[settings['risk_free_name'], 'price_cad'] = risk_free["close"] * ex
         else:
             portfolio.loc[name, 'price_cad'] = book.loc[name, 'close'] * ex
 
@@ -144,8 +159,9 @@ def make_portfolio():
 
     # Create the capital allocation line (CAL)
     # -----------------------------------------------------------------------------------
-    cal_std = [std_free, utility_std[-1]]
-    cal_r = [r_free, r_free + (utility_std[-1] - r_free) * (opt_r - r_free) / (opt_std - std_free)]
+    cal_std = [risk_free["std"], utility_std[-1]]
+    d_r = (utility_std[-1] - risk_free["return"]) * (opt_r - risk_free["return"]) / (opt_std - risk_free["std"])
+    cal_r = [risk_free["return"], risk_free["return"] + d_r]
 
     # Create minimum variance frontier
     # -----------------------------------------------------------------------------------
@@ -176,13 +192,13 @@ def make_portfolio():
     elif shorting == 'n':
         ax1.plot(frontier_std, frontier_r, color='b', label='Min Var. Frontier (No Shorting)')
     else:
-        ax1.plot(frontier_std, frontier_r, color='b', label='M.V. Frontier (Short with sum(|w|) < 2.0')
+        ax1.plot(frontier_std, frontier_r, color='b', label='M.V. Frontier (Short with sum(|w|) < 1.5)')
     ax1.plot(cal_std, cal_r, color='g', label='Capital Allocation Line (CAL)')
     ax1.scatter(opt_std, opt_r, color='g', marker='d', label='Optimum Portfolio', zorder=8)
     ax1.scatter(min_var_std, min_var_r, color='b', marker='s', label='Global Min Var. Portfolio')
     ax1.scatter(complete_std, complete_r, color='m', marker='*',
                 label='Portfolio (A={}, U={:.1f}, y={:.1f}%)'.format(a, u, 100.0*y), zorder=9, s=80)
-    ax1.scatter(std_free, r_free, color='grey', marker='o',
+    ax1.scatter(risk_free["std"], risk_free["return"], color='grey', marker='o',
                 label='"Risk-Free" ({})'.format(settings["risk_free_name"]))
     ax1.scatter(book.loc[:, 'std'], book.loc[:, 'return'], color='k', marker='.', label='Stocks', zorder=10)
     ax1.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc=3, ncol=2, mode="expand", borderaxespad=0., fontsize=8)
@@ -200,7 +216,7 @@ def negative_slope(weights):
     r = (weights * book.loc[:, 'return']).sum()
     std = get_std(weights)
 
-    return (settings["risk_free_rate"] - r) / (std - settings["risk_free_std"])
+    return (risk_free["return"] - r) / (std - risk_free["std"])
 
 
 # ***************************************************************************************
@@ -241,6 +257,7 @@ def trend():
             "Adj Close" columns.  Daily frequency is required.
 
     Returns:
+        pd.Series:  [std, return, close]  The price information for the given risk-free asset.
         pd.DataFrame:  [name, [std, return, close]]  Each row is a stock by the name and columns are the standard
             deviation, expected monthly return and today's adjusted close value.
         pd.DataFrame:  [name, name]  The covariance matrix of the monthly stock returns.
@@ -321,16 +338,15 @@ def trend():
 
     # Remove "risk-free" asset
     # -----------------------------------------------------------------------------------
-    if "risk_free_name" in settings.index:
-        if settings["risk_free_name"] in stocks.index:
-            stocks.drop(settings["risk_free_name"], inplace=True, axis=0)
-            returns.drop(settings["risk_free_name"], inplace=True, axis=1)
+    rf = stocks.loc[settings["risk_free_name"], :]
+    stocks.drop(settings["risk_free_name"], inplace=True, axis=0)
+    returns.drop(settings["risk_free_name"], inplace=True, axis=1)
 
     # Calculate the covariance
     # -----------------------------------------------------------------------------------
     cov = returns.cov()
 
-    return stocks, cov
+    return rf, stocks, cov
 
 
 # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -348,7 +364,7 @@ settings['cad_cad'] = 1.0
 
 # Initialize the book with historical trend and calculate the monthly return covariance
 # ---------------------------------------------------------------------------------------
-book, book_cov = trend()
+risk_free, book, book_cov = trend()
 
 # Updated book with manually entered values
 # ---------------------------------------------------------------------------------------

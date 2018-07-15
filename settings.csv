@@ -1,11 +1,8 @@
 name,value
 risk_free_name, FLTR
-risk_free_rate, 0.2 
-risk_free_std, 0.3 
-risk_free_price, 25.27
 utility_a, 0.5
 shorting, limited
-portfolio_value, 4930819.93
+portfolio_value, 5114684.79
 usd_cad, 1.29469
 gbp_cad, 1.73846
 chf_cad, 1.31338
