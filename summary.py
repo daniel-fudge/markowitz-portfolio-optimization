@@ -15,6 +15,13 @@ Input files required in current working directory:
     [market_name].csv - Yahoo Finance formatted historical performance of market index.
     OpenPosition.csv - Contains the current Stock-Trak portfolio.
     portfolio_history.csv - Contains the historical performance of the Stock-Trak account.
+
+Output files generated in current working directory:
+    currency.png - Pie chart of the currency distribution in the portfolio.
+    scl_benchmark.png - The Security Characteristic Line (SCL) for the benchmark.
+    scl_market.png - The Security Characteristic Line (SCL) for the market.
+    scl_portfolio.png - The Security Characteristic Line (SCL) for the portfolio.
+    stats.csv - Compilation of summary statistics for the market, benchmark and portfolio.
 """
 
 from datetime import datetime

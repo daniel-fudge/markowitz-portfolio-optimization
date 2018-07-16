@@ -8,7 +8,6 @@ Notes:
         Toronto Stock Exchange.  The [SE] is used to make to the associated [CC].
 
 Input files required in current working directory:
-
     OpenPosition.csv - Current StockTrak portfolio positions.
     override.csv - Contains hard coded expected monthly return values.
     settings.csv - Contains the following settings.
@@ -23,6 +22,10 @@ Input files required in current working directory:
         [SE] (str):  The [CC] associated with the given [SE].
     stocks/[name].csv - The [name] refers to the stock ticker.  Each csv file needs to contains the "Date" and
         "Adj Close" columns.  Daily frequency is required.
+
+Output files generated in current working directory:
+    portfolio.csv - Detailed summary of desired portfolio and the required trades.
+    portfolio.png - Mean-variance plot of the desired portfolio.
 """
 
 from datetime import date, timedelta
