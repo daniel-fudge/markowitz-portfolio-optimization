@@ -1,5 +1,7 @@
 name,value
 risk_free_name, FLTR
+benchmark_name, URTH
+market_name, GSPC
 utility_a, 0.5
 shorting, limited
 portfolio_value, 5114684.79

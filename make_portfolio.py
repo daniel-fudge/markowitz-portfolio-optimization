@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-This script performs an optimal portfolio selection based on the sharp ratio and utility maximization.
+This script performs an optimal portfolio selection based on the Sharpe ratio and utility maximization.
 
 Notes:
     [CC] is the Currency Code such as "gbp" for Great Britain Pound.
