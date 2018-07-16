@@ -27,7 +27,6 @@ Output files generated in current working directory:
 from datetime import datetime
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-import numpy as np
 from os.path import join
 import pandas as pd
 from scipy.stats.mstats import gmean
@@ -101,15 +100,16 @@ for name in total_r.columns:
     stats.loc["alpha", name] = model.intercept_[0]
     stats.loc["Treynor", name] = (stats.loc["mean_r", name] - r_f) / stats.loc["beta", name]
     stats.loc["info", name] = stats.loc["alpha", name] / stats.loc["std", name]
-    p_star = stats.loc["std", "market"] / stats.loc["std", name] * (stats.loc["mean_r", name] - r_f) + r_f
-    stats.loc["M2", name] = p_star - stats.loc["mean_r", "market"]
+    excess_r = stats.loc["mean_r", name] - r_f
+    stats.loc["p_star", name] = stats.loc["std", "market"] / stats.loc["std", name] * excess_r + r_f
+    stats.loc["M2", name] = stats.loc["p_star", name] - stats.loc["mean_r", "market"]
 
+    # Plot Security Characteristic Line (SCL)
     fig, ax = plt.subplots()
     ax.scatter(r_m, r)
     ax.plot(r_m, r_predict)
-    ax.set_title("SCL for the {}, beta = {:.2f}, alpha = {:.2f}%, R^2 = {:.2f}".format(name, model.coef_[0, 0],
-                                                                                       model.intercept_[0],
-                                                                                       r2_score(r, r_predict)))
+    tmp_str = "SCL for the {}, beta = {:.2f}, alpha = {:.2f}%, R^2 = {:.2f}"
+    ax.set_title(tmp_str.format(name, model.coef_[0, 0], model.intercept_[0], r2_score(r, r_predict)))
     plt.ylabel("Excess Daily Return (%)")
     plt.xlabel("Excess Daily Market Return (%)")
     ax.axhline(y=0.0, c='black')
@@ -119,6 +119,33 @@ for name in total_r.columns:
     fig.savefig('scl_{}.png'.format(name))
     plt.close()
 
+# Plot M2
+# -----------------------------------------------------------------------------------
+fig, ax = plt.subplots()
+
+# Characteristic market Line (CML)
+ax.plot([std_f, stats.loc["std", "market"]], [r_f, stats.loc["mean_r", "market"]], label="CML", marker="o", c='black')
+
+# Benchmark Characteristic Asset Line (CAL)
+label = "Benchmark CAL"
+ax.plot([std_f, stats.loc["std", "market"], stats.loc["std", "benchmark"]],
+        [r_f, stats.loc["p_star", "benchmark"], stats.loc["mean_r", "benchmark"]], label=label, marker="d", c="blue")
+
+# Portfolio Characteristic Asset Line (CAL)
+label = "Portfolio CAL"
+ax.plot([std_f, stats.loc["std", "market"], stats.loc["std", "portfolio"]],
+        [r_f, stats.loc["p_star", "portfolio"], stats.loc["mean_r", "portfolio"]], label=label, marker="s", c="green")
+
+ax.set_title("M2 Plot for the Market (M2={:.2f}) and the Portfolio (M2={:.2f})".format(stats.loc["M2", "benchmark"],
+                                                                                       stats.loc["M2", "portfolio"]))
+plt.ylabel("Daily Return (%)")
+plt.xlabel("Standard Deviation of Daily Return (%)")
+lgd = ax.legend(loc='upper left', fancybox=True, shadow=True, ncol=1, fontsize=9)
+fig.savefig('m2.png', bbox_extra_artists=(lgd,), bbox_inches='tight')
+plt.close()
+
+# Print stats to screen for reference and save to stats.csv
+# -----------------------------------------------------------------------------------
 print(stats)
 stats.to_csv("stats.csv")
 
