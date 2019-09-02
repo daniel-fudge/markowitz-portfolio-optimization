@@ -28,7 +28,7 @@ Output files generated in current working directory:
     portfolio.png - Mean-variance plot of the desired portfolio.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from glob import glob
 import numpy as np
 from os import chdir, getcwd, remove
@@ -36,6 +36,8 @@ from os.path import isfile
 import pandas as pd
 from scipy.optimize import minimize
 from shutil import move
+from pandas.plotting import register_matplotlib_converters
+register_matplotlib_converters()
 
 # ***************************************************************************************
 # Set version number
@@ -78,6 +80,7 @@ def make_portfolio():
     # Determine the optimal portfolio
     # -----------------------------------------------------------------------------------
     print("Generating optimal portfolio.")
+    # noinspection PyTypeChecker
     res = minimize(negative_slope, x0=weights, bounds=weight_bnd, constraints=weight_con)
     opt_weights = res.x
     opt_r = (opt_weights * book.loc[:, 'return']).sum()
@@ -86,6 +89,7 @@ def make_portfolio():
     # Determine the minimum variance portfolio
     # -----------------------------------------------------------------------------------
     print("Generating minimum variance portfolio.")
+    # noinspection PyTypeChecker
     res = minimize(get_std, x0=opt_weights, bounds=weight_bnd, constraints=weight_con)
     min_var_r = (res.x * book.loc[:, 'return']).sum()
     min_var_std = get_std(res.x)
@@ -135,7 +139,7 @@ def make_portfolio():
             current_portfolio.loc[i, "Symbol"] = "{}.{}".format(current_portfolio.loc[i, "Symbol"], market)
     current_portfolio.set_index("Symbol", inplace=True)
 
-    portfolio = pd.concat([portfolio, current_portfolio["current_number"]], axis=1)
+    portfolio = pd.concat([portfolio, current_portfolio["current_number"]], axis=1, sort=True)
     for name in ["current_number", "percentage", "value_cad", "desired_number"]:
         portfolio[name] = portfolio[name].fillna(0.0)
     missing = portfolio.index[portfolio.price_cad.isnull()].tolist()
@@ -176,6 +180,7 @@ def make_portfolio():
     for i in range(frontier_r.shape[0]):
 
         r_con = weight_con + ({'type': 'eq', 'fun': lambda x: (x * book.loc[:, 'return']).sum() - frontier_r[i]},)
+        # noinspection PyTypeChecker
         res = minimize(get_std, x0=weights, bounds=weight_bnd, constraints=r_con)
         weights = res.x
         frontier_std[i] = get_std(res.x)
@@ -184,7 +189,6 @@ def make_portfolio():
     # -----------------------------------------------------------------------------------
     print("Making portfolio.png.")
     fig, ax1 = plt.subplots(nrows=1, ncols=1)
-    ax1 = plt.subplot(111)
     ax1.set_xlabel("Standard Deviation of Monthly Returns")
     ax1.set_ylabel("Expected Monthly Returns")
     ax1.grid()
@@ -273,7 +277,10 @@ def trend():
 
     # Create DataFrame with index starting 36 months ago
     # ---------------------------------------------------------------------------------------
-    now = date.today()
+    if 'now' in settings.index:
+        now = datetime.strptime(settings.now, "%Y-%m-%d")
+    else:
+        now = date.today()
     start = now - timedelta(days=3*365.25)
     prices = pd.DataFrame(index=pd.date_range(start, now))
 
@@ -320,18 +327,17 @@ def trend():
         fig = plt.figure(figsize=(8.5, 11))
         ax1 = plt.subplot(211)
         plt.title(title_text.format(name, stocks.loc[name, "std"], stocks.loc[name, "return"]))
-        ax1.plot(prices.index, prices[name], color='k', marker=',')
-        ax1.set_ylabel("Price")
-        ax1.grid()
+        plt.plot(prices.index, prices[name], color='k', marker=',')
+        plt.ylabel("Price")
+        plt.grid()
 
-        ax2 = plt.subplot(212, sharex=ax1)
-        ax2.plot(returns.index, returns[name], color='k', marker=',')
-        ax2.set_ylabel("Monthly Return in Percent")
-        ax2.grid()
-
+        plt.subplot(212, sharex=ax1)
+        plt.plot(returns.index, returns[name], color='k', marker=',')
+        plt.ylabel("Monthly Return in Percent")
+        plt.grid()
         r = [fits[name](0), fits[name](prediction_duration), stocks.loc[name, "return"]]
-        ax2.plot(t[:2], r[:2], color='b')
-        ax2.plot(t[1:], r[1:], color='g')
+        plt.plot(t[:2], r[:2], color='b')
+        plt.plot(t[1:], r[1:], color='g')
 
         pdf.savefig(fig, papertype='letter', orientation='landscape', pad_inches=0.25)
         plt.close(fig)
