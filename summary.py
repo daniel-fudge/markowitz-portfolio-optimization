@@ -24,7 +24,7 @@ Output files generated in current working directory:
     stats.csv - Compilation of summary statistics for the market, benchmark and portfolio.
 """
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from os.path import join
@@ -32,6 +32,8 @@ import pandas as pd
 from scipy.stats.mstats import gmean
 from sklearn import linear_model
 from sklearn.metrics import r2_score
+from pandas.plotting import register_matplotlib_converters
+register_matplotlib_converters()
 
 # ***************************************************************************************
 # Set version number
@@ -43,12 +45,22 @@ __version__ = '1.0'
 # Main body of Code
 # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-start_date = datetime(2018, 5, 28)
-
 # Read the settings
 # -----------------------------------------------------------------------------------
 settings = pd.read_csv("settings.csv", index_col="name", squeeze=True)
 settings = settings.str.strip()
+
+# Parse the relevant dates
+# -----------------------------------------------------------------------------------
+if 'now' in settings.index:
+    now = datetime.strptime(settings.now, "%Y-%m-%d")
+else:
+    now = date.today()
+
+if 'start_date' in settings.index:
+    start_date = datetime.strptime(settings.start_date, "%Y-%m-%d")
+else:
+    start_date = now - timedelta(days=30)
 
 # Read Risk-Free performance
 # -----------------------------------------------------------------------------------
@@ -146,7 +158,8 @@ plt.close()
 
 # Print stats to screen for reference and save to stats.csv
 # -----------------------------------------------------------------------------------
-print(stats)
+print(stats.to_string(formatters={'market': '{:6.2f}'.format, 'benchmark': '{:6.2f}'.format,
+                                  'portfolio': '{:6.2f}'.format}))
 stats.to_csv("stats.csv")
 
 # Plot the returns
